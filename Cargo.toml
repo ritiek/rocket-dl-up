@@ -10,3 +10,4 @@ rocket = { version = "0.5.0-rc.1", features = ["secrets", "tls", "json"] }
 sanitize-filename = "0.3.0"
 rocket-multipart-form-data = "0.10.0"
 rocket-download-response = "0.5"
+async-std = "1.10.0"
