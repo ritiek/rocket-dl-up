@@ -26,7 +26,7 @@ use std::{
 };
 use std::path::PathBuf;
 use std::io::Write;
-use std::fs::File;
+use std::fs::{create_dir, File};
 use std::io::prelude::*;
 use std::path::Path;
 
@@ -42,7 +42,8 @@ pub fn index() -> (ContentType, &'static str) {
 }
 
 #[post("/", data = "<form_data>")]
-pub async fn upload_file(content_type: &ContentType, form_data: Data<'_>) -> (ContentType, &'static str) {
+pub async fn upload_file(content_type: &ContentType, form_data: Data<'_>) -> (ContentType, String) {
+    let initial_time = time::Instant::now();
     let mut options = MultipartFormDataOptions::with_multipart_form_data_fields(
         vec! [
             MultipartFormDataField::raw("somefile").size_limit(200 * 1024 * 1024),
@@ -55,7 +56,9 @@ pub async fn upload_file(content_type: &ContentType, form_data: Data<'_>) -> (Co
     let mut file = File::create(format!("./uploads/{}", file_name)).unwrap();
     file.write_all(&content[0].raw).unwrap();
 
-    (ContentType::HTML, "<body>accepted!</body>")
+    let later_time = initial_time.elapsed();
+    let response = format!("<body>accepted<br><br>elapsed_time: {}</body>", later_time.as_millis());
+    (ContentType::HTML, response)
 }
 
 #[get("/<filename>")]
@@ -74,6 +77,10 @@ pub async fn download_file(filename: &str) -> Result<DownloadResponse, Status> {
 
 #[launch]
 pub fn rocket() -> _ {
+    let path = Path::new("./uploads");
+    if !path.exists() {
+        create_dir(path).unwrap();
+    }
     rocket::build()
         .mount("/", routes![index, upload_file, download_file])
 }
