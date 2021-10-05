@@ -1,0 +1,5 @@
+[global]
+port = 8700
+
+[default]
+limits = { file = "10 GiB" }
