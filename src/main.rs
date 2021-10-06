@@ -5,6 +5,7 @@ use rocket::data::Data;
 use rocket::form::FromForm;
 use rocket::fs::TempFile;
 use rocket::http::{ContentType, Status};
+use rocket::response::status;
 
 use rocket_download_response::DownloadResponse;
 use rocket_multipart_form_data::{
@@ -12,9 +13,11 @@ use rocket_multipart_form_data::{
 };
 
 use async_std::io::prelude::*;
+use serde_json::{json, Value};
 use std::{io::ErrorKind, time};
 
-const STORAGE_DIRECTORY: &str = "./uploads";
+use rkt::constants;
+use rkt::MultipartHandler;
 
 #[derive(Debug, FromForm)]
 pub struct UploadForm<'a> {
@@ -40,47 +43,28 @@ pub fn index() -> (ContentType, &'static str) {
 pub async fn upload_file(
     content_type: &ContentType,
     form_data: Data<'_>,
-) -> Result<String, Status> {
+) -> Result<status::Custom<Value>, status::Custom<Value>> {
     let initial_time = time::Instant::now();
 
-    let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
-        MultipartFormDataField::raw("somefile").size_limit(200 * 1024 * 1024),
-    ]);
-    let mut multipart_form_data = MultipartFormData::parse(content_type, form_data, options)
+    let multipart = MultipartHandler::from(content_type, form_data)
         .await
-        .map_err(|_| Status::BadRequest)?;
-    let content = multipart_form_data
-        .raw
-        .remove("somefile")
-        .ok_or_else(|| Status::BadRequest)?;
+        .map_err(|e| {
+            let message =
+                json!({"success": false, "message": format!("Upload Failed with error: {:#?}", e)});
+            return status::Custom(Status::BadRequest, message);
+        })?;
 
-    let file_name = content[0]
-        .file_name
-        .clone()
-        .ok_or_else(|| Status::InternalServerError)?;
-
-    let path = async_std::path::Path::new(STORAGE_DIRECTORY);
-    if !path.exists().await {
-        async_std::fs::create_dir(path)
-            .await
-            .map_err(|_| Status::InternalServerError)?;
-    }
-
-    let mut file = async_std::fs::File::create(format!("{}/{}", STORAGE_DIRECTORY, file_name))
-        .await
-        .map_err(|_| Status::InsufficientStorage)?;
-    file.write_all(&content[0].raw)
-        .await
-        .map_err(|_| Status::InsufficientStorage)?;
+    let url = multipart.save_to_file().await.unwrap();
 
     let elapsed = initial_time.elapsed();
+    let message = json!({"success": true, "message": "Upload Successful", "data": url, "elapsed": {"value": elapsed.as_millis() as u32, "unit": "milliseconds"}});
 
-    Ok(format!("accepted\n\nelapsed: {}", elapsed.as_millis()))
+    Ok(status::Custom(Status::Ok, message))
 }
 
 #[get("/<filename>")]
 pub async fn download_file(filename: &str) -> Result<DownloadResponse, Status> {
-    let file = format!("{}/{}", STORAGE_DIRECTORY, filename);
+    let file = format!("{}/{}", constants::STORAGE_DIRECTORY, filename);
     let path = std::path::Path::new(&file);
     DownloadResponse::from_file(path, None::<String>, None)
         .await
